@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0b0b1a">
+<title>Nova Player</title>
+<!--
+  Nova Player - "Search from phone". The TV shows a QR code linking here with a new random
+  channel name after "#". What is typed here is posted to that channel (ntfy.sh) and the TV,
+  listening on it while its search screen is open, searches for it. No data is kept here.
+-->
+<style>
+  :root {
+    --bg: #0b0b1a; --card: #17172b; --line: rgba(255, 255, 255, 0.12);
+    --t1: #fff; --t2: rgba(255, 255, 255, 0.65); --a1: #8b5cff; --a2: #00d4ff; --ok: #3ddc97; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--t1); font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif; }
+  body { min-height: 100vh; padding: 28px 16px 40px; display: flex; justify-content: center; }
+  main { width: 100%; max-width: 480px; }
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+  .brand svg { width: 44px; height: 44px; flex: none; }
+  .brand b { font-size: 22px; }
+  .brand span { display: block; color: var(--t2); font-size: 14px; margin-top: 2px; }
+  form { display: flex; gap: 10px; }
+  input {
+    flex: 1; min-width: 0; height: 56px; padding: 0 18px; border-radius: 16px; border: 2px solid var(--line);
+    background: var(--card); color: var(--t1); font-size: 18px; outline: none;
+  }
+  input:focus { border-color: var(--a2); }
+  button {
+    height: 56px; padding: 0 22px; border: 0; border-radius: 16px; font-size: 17px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, var(--a1), var(--a2)); cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; }
+  .status { min-height: 24px; margin: 14px 4px 0; font-size: 15px; color: var(--t2); }
+  .status.ok { color: var(--ok); }
+  .status.bad { color: var(--bad); }
+  h2 { font-size: 15px; color: var(--t2); font-weight: 600; margin: 28px 4px 10px; }
+  .recent { display: flex; flex-wrap: wrap; gap: 8px; }
+  .recent button { height: 40px; padding: 0 16px; font-size: 15px; font-weight: 500; background: var(--card); border: 1px solid var(--line); }
+  .help { margin-top: 34px; padding: 16px; border-radius: 16px; background: var(--card); color: var(--t2); font-size: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg viewBox="0 0 512 512" aria-hidden="true"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cff"/><stop offset="1" stop-color="#00d4ff"/></linearGradient></defs><path d="M206 112 L256 156 L306 112" fill="none" stroke="url(#g)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/><rect x="96" y="156" width="320" height="236" rx="46" fill="none" stroke="url(#g)" stroke-width="28"/><path d="M226 218 L310 274 L226 330 Z" fill="url(#g)" stroke="url(#g)" stroke-width="24" stroke-linejoin="round"/></svg>
+    <div><b>Nova Player</b><span id="sub"></span></div>
+  </div>
+  <form id="f" autocomplete="off">
+    <input id="q" type="search" maxlength="60" enterkeyhint="search">
+    <button id="send" type="submit"></button>
+  </form>
+  <div id="status" class="status"></div>
+  <h2 id="recentTitle" hidden></h2>
+  <div id="recent" class="recent"></div>
+  <div id="help" class="help"></div>
+</main>
+<script>
+(function () {
+  'use strict';
+  var ar = !/^en/i.test(navigator.language || '') || /^ar/i.test(navigator.language || '');
+  var T = ar ? {
+    sub: 'ابحث على الشاشة من موبايلك', ph: 'اسم قناة، فيلم أو مسلسل', send: 'ابحث',
+    sending: 'عم يبعت…', sent: 'انبعت! شوف النتايج عالشاشة', fail: 'ما انبعت، تأكد من الإنترنت وجرب مرة تانية',
+    bad: 'الرابط ناقص: امسح الكود من شاشة البحث بالبرنامج من جديد', recent: 'آخر عمليات البحث',
+    help: 'الصفحة بتشتغل بس وشاشة البحث مفتوحة بالبرنامج. إذا سكّرتها وفتحتها، امسح الكود الجديد.'
+  } : {
+    sub: 'Search on the TV from your phone', ph: 'Channel, film or series name', send: 'Search',
+    sending: 'Sending…', sent: 'Sent! See the results on the TV', fail: 'Not sent - check the internet and try again',
+    bad: 'Incomplete link: scan the code on the app\'s search screen again', recent: 'Recent searches',
+    help: 'This page works while the search screen is open in the app. If you close and reopen it, scan the new code.'
+  };
+  if (!ar) { document.documentElement.lang = 'en'; document.documentElement.dir = 'ltr'; }
+  var $ = function (id) { return document.getElementById(id); };
+  $('sub').textContent = T.sub;
+  $('q').placeholder = T.ph;
+  $('send').textContent = T.send;
+  $('help').textContent = T.help;
+  $('recentTitle').textContent = T.recent;
+
+  // The TV's channel name: only letters, digits and '-' (anything else is not ours)
+  var topic = (location.hash || '').slice(1);
+  var valid = /^nova-q-[a-z0-9]{20}$/.test(topic);
+  function status(text, cls) { var s = $('status'); s.textContent = text; s.className = 'status ' + (cls || ''); }
+  if (!valid) { status(T.bad, 'bad'); $('send').disabled = true; }
+
+  var KEY = 'nova-phone-recent';
+  function recent() { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; } }
+  function remember(q) {
+    var list = recent().filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); });
+    list.unshift(q);
+    try { localStorage.setItem(KEY, JSON.stringify(list.slice(0, 8))); } catch (e) { /* private mode */ }
+    showRecent();
+  }
+  function showRecent() {
+    var box = $('recent');
+    box.innerHTML = '';
+    var list = recent();
+    $('recentTitle').hidden = !list.length;
+    list.forEach(function (q) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = q;
+      b.onclick = function () { $('q').value = q; send(q); };
+      box.appendChild(b);
+    });
+  }
+
+  var busy = false;
+  function send(q) {
+    q = String(q || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!q || busy || !valid) return;
+    busy = true;
+    $('send').disabled = true;
+    status(T.sending);
+    fetch('https://ntfy.sh/' + topic, { method: 'POST', body: q }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      status(T.sent, 'ok');
+      remember(q);
+    }).catch(function () {
+      status(T.fail, 'bad');
+    }).then(function () {
+      busy = false;
+      $('send').disabled = false;
+    });
+  }
+
+  $('f').addEventListener('submit', function (e) {
+    e.preventDefault();
+    send($('q').value);
+    $('q').blur();
+  });
+  showRecent();
+  if (valid) $('q').focus();
+})();
+</script>
+</body>
+</html>
