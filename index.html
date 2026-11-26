@@ -117,16 +117,28 @@
     busy = true;
     $('send').disabled = true;
     status(T.sending);
-    fetch('https://ntfy.sh/' + topic, { method: 'POST', body: q }).then(function (r) {
-      if (!r.ok) throw new Error(r.status);
-      status(T.sent, 'ok');
-      remember(q);
-    }).catch(function () {
-      status(T.fail, 'bad');
-    }).then(function () {
+    var finished = false, controller = null;
+    try { if (window.AbortController) controller = new window.AbortController(); } catch (e) { /* older phone */ }
+    var timer = setTimeout(function () {
+      finish(false);
+      if (controller) { try { controller.abort(); } catch (e) { /* already complete */ } }
+    }, 15000);
+    function finish(ok) {
+      if (finished) return;   // a late old response must not change a newer request's UI
+      finished = true;
+      clearTimeout(timer);
       busy = false;
       $('send').disabled = false;
-    });
+      status(ok ? T.sent : T.fail, ok ? 'ok' : 'bad');
+      if (ok) { try { remember(q); } catch (e) { /* recent storage cannot block sending */ } }
+    }
+    try {
+      var options = { method: 'POST', body: q };
+      if (controller) options.signal = controller.signal;
+      Promise.resolve(fetch('https://ntfy.sh/' + topic, options)).then(function (r) {
+        finish(!!r.ok);
+      }, function () { finish(false); });
+    } catch (e) { finish(false); }
   }
 
   $('f').addEventListener('submit', function (e) {
